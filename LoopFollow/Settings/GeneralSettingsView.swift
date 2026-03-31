@@ -6,7 +6,7 @@ import SwiftUI
 struct GeneralSettingsView: View {
     @ObservedObject var colorBGText = Storage.shared.colorBGText
     @ObservedObject var appBadge = Storage.shared.appBadge
-    @ObservedObject var forceDarkMode = Storage.shared.forceDarkMode
+    @ObservedObject var appearanceMode = Storage.shared.appearanceMode
     @ObservedObject var showStats = Storage.shared.showStats
     @ObservedObject var useIFCC = Storage.shared.useIFCC
     @ObservedObject var showSmallGraph = Storage.shared.showSmallGraph
@@ -15,6 +15,8 @@ struct GeneralSettingsView: View {
     @ObservedObject var snoozerEmoji = Storage.shared.snoozerEmoji
     @ObservedObject var forcePortraitMode = Storage.shared.forcePortraitMode
     @ObservedObject var persistentNotification = Storage.shared.persistentNotification
+    @ObservedObject var graphTimeZoneEnabled = Storage.shared.graphTimeZoneEnabled
+    @ObservedObject var graphTimeZoneIdentifier = Storage.shared.graphTimeZoneIdentifier
 
     // Speak-BG settings
     @ObservedObject var speakBG = Storage.shared.speakBG
@@ -36,7 +38,11 @@ struct GeneralSettingsView: View {
                 }
 
                 Section("Display") {
-                    Toggle("Force Dark Mode (restart app)", isOn: $forceDarkMode.value)
+                    Picker("Appearance", selection: $appearanceMode.value) {
+                        ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
                     Toggle("Display Stats", isOn: $showStats.value)
                     Toggle("Use IFCC A1C", isOn: $useIFCC.value)
                     Toggle("Display Small Graph", isOn: $showSmallGraph.value)
@@ -46,15 +52,27 @@ struct GeneralSettingsView: View {
                     Toggle("Snoozer emoji", isOn: $snoozerEmoji.value)
                     Toggle("Force portrait mode", isOn: $forcePortraitMode.value)
                         .onChange(of: forcePortraitMode.value) { _ in
-                            if #available(iOS 16.0, *) {
-                                let window = UIApplication.shared.connectedScenes
-                                    .compactMap { $0 as? UIWindowScene }
-                                    .flatMap { $0.windows }
-                                    .first
+                            let window = UIApplication.shared.connectedScenes
+                                .compactMap { $0 as? UIWindowScene }
+                                .flatMap { $0.windows }
+                                .first
 
-                                window?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                            window?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                        }
+                }
+
+                Section("Time Zone") {
+                    Toggle("Time Zone Override", isOn: $graphTimeZoneEnabled.value)
+                        .onChange(of: graphTimeZoneEnabled.value) { _ in markChartSettingsDirty() }
+
+                    if graphTimeZoneEnabled.value {
+                        Picker("Time Zone", selection: $graphTimeZoneIdentifier.value) {
+                            ForEach(Self.sortedTimeZones, id: \.identifier) { tz in
+                                Text(Self.timeZoneLabel(tz)).tag(tz.identifier)
                             }
                         }
+                        .onChange(of: graphTimeZoneIdentifier.value) { _ in markChartSettingsDirty() }
+                    }
                 }
 
                 Section("Speak BG") {
@@ -63,6 +81,7 @@ struct GeneralSettingsView: View {
                     if speakBG.value {
                         Picker("Language", selection: $speakLanguage.value) {
                             Text("English").tag("en")
+                            Text("French").tag("fr")
                             Text("Italian").tag("it")
                             Text("Slovak").tag("sk")
                             Text("Swedish").tag("sv")
@@ -115,7 +134,22 @@ struct GeneralSettingsView: View {
                 }
             }
         }
-        .preferredColorScheme(Storage.shared.forceDarkMode.value ? .dark : nil)
+        .preferredColorScheme(Storage.shared.appearanceMode.value.colorScheme)
         .navigationBarTitle("General Settings", displayMode: .inline)
+    }
+
+    private func markChartSettingsDirty() {
+        Observable.shared.chartSettingsChanged.value = true
+    }
+
+    private static let sortedTimeZones: [TimeZone] = TimeZone.knownTimeZoneIdentifiers
+        .compactMap { TimeZone(identifier: $0) }
+        .sorted { $0.secondsFromGMT() < $1.secondsFromGMT() }
+
+    private static func timeZoneLabel(_ tz: TimeZone) -> String {
+        let offsetMinutes = tz.secondsFromGMT() / 60
+        let sign = offsetMinutes >= 0 ? "+" : "-"
+        let offsetString = String(format: "UTC%@%02d:%02d", sign, abs(offsetMinutes) / 60, abs(offsetMinutes) % 60)
+        return "(\(offsetString)) \(tz.identifier)"
     }
 }
